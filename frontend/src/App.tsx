@@ -6,6 +6,7 @@ import { ProductTable } from './components/ProductTable'
 import { FiRefreshCw, FiPlus, FiBox } from 'react-icons/fi'
 import { AdjustStockModal } from './components/AdjustStockModal'
 import { MovementsModal } from './components/MovementsModal'
+import { CreateOrderModal } from './components/CreateOrderModal'
 
 export default function App() {
   const [products, setProducts] = useState<Product[]>([])
@@ -13,6 +14,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [selectedProductForStock, setSelectedProductForStock] = useState<Product | null>(null)
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null)
+  const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
 
   const loadProducts = async () => {
     setLoading(true)
@@ -66,7 +68,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => alert('Create order coming up next')}
+              onClick={() => setIsOrderModalOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
             >
               <FiPlus className="w-4 h-4" />
@@ -100,6 +102,13 @@ export default function App() {
         <MovementsModal
           product={selectedProductForHistory}
           onClose={() => setSelectedProductForHistory(null)}
+        />
+
+        <CreateOrderModal
+          isOpen={isOrderModalOpen}
+          products={products}
+          onClose={() => setIsOrderModalOpen(false)}
+          onSuccess={loadProducts}
         />
       </div>
     </div>
