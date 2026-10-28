@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"stockflow/backend/internal/routes"
+	"stockflow/backend/internal/products"
 )
 
 var database *sql.DB
@@ -46,7 +46,8 @@ func main() {
 	})
 
 	// Endpoints
-	routes.RegisterProductRoutes(router, database)
+	products.RegisterProductRoutes(router, database)
+
 
 	router.Run(":8080")
 }

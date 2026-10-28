@@ -18,6 +18,13 @@ type CreateProduct struct {
 	Price	int   	`json:"price" binding:"gte=0"`
 }
 
+type UpdateProduct struct {
+	Name     	*string	`json:"name"`
+	Price    	*int    `json:"price" binding:"omitempty,gte=0"`
+	IsActive	*bool   `json:"is_active"`
+}
+
+
 type PaginatedProducts struct {
 	Data  	[]Product 	`json:"data"`
 	Page 	int      	`json:"page"`
