@@ -36,7 +36,7 @@ func getProducts(db *sql.DB) gin.HandlerFunc {
 		}
 		defer rows.Close()
 
-		var list []Product
+		list := []Product{}
 		total := 0
 
 		for rows.Next() {
@@ -172,18 +172,24 @@ func adjustStock(db *sql.DB) gin.HandlerFunc {
 		}
 		defer transaction.Rollback()
 
-		var newStock int
+		var updateQuery string
 		if input.Type == "out" {
-			err = transaction.QueryRow(
-				"UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1 RETURNING stock",
-				input.Qty, id,
-			).Scan(&newStock)
+			updateQuery = `
+				UPDATE products 
+				SET stock = stock - $1 
+				WHERE id = $2 AND stock >= $1 
+				RETURNING stock
+			`
 		} else {
-			err = transaction.QueryRow(
-				"UPDATE products SET stock = stock + $1 WHERE id = $2 RETURNING stock",
-				input.Qty, id,
-			).Scan(&newStock)
+			updateQuery = `
+				UPDATE products 
+				SET stock = stock + $1 
+				WHERE id = $2 
+				RETURNING stock
+			`
 		}
+		var newStock int
+		err = transaction.QueryRow(updateQuery, input.Qty, id).Scan(&newStock)
 
 		if err == sql.ErrNoRows {
 			var available int
@@ -211,17 +217,23 @@ func getProductMovements(db *sql.DB) gin.HandlerFunc {
 	return func(context *gin.Context) {
 		id := context.Param("id")
 
-		rows, err := db.Query(
-			"SELECT id, product_id, type, qty, note, created_at FROM stock_movements WHERE product_id = $1 ORDER BY created_at DESC",
-			id,
-		)
+		query := `
+			SELECT 
+				id, 	product_id, 	type, 
+				qty, 	note, 			created_at 
+			FROM stock_movements 
+			WHERE product_id = $1 
+			ORDER BY created_at DESC
+		`
+		rows, err := db.Query(query, id)
+		
 		if err != nil {
 			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		defer rows.Close()
 
-		var movements []StockMovement
+		movements := []StockMovement{}
 		for rows.Next() {
 			var m StockMovement
 			rows.Scan(&m.ID, &m.ProductID, &m.Type, &m.Qty, &m.Note, &m.CreatedAt)
