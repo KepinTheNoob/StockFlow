@@ -5,12 +5,14 @@ import { SummaryCards } from './components/SummaryCards'
 import { ProductTable } from './components/ProductTable'
 import { FiRefreshCw, FiPlus, FiBox } from 'react-icons/fi'
 import { AdjustStockModal } from './components/AdjustStockModal'
+import { MovementsModal } from './components/MovementsModal'
 
 export default function App() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedProductForStock, setSelectedProductForStock] = useState<Product | null>(null)
+  const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null)
 
   const loadProducts = async () => {
     setLoading(true)
@@ -86,13 +88,18 @@ export default function App() {
           error={error}
           onRetry={loadProducts}
           onAdjustStock={(product) => setSelectedProductForStock(product)}
-          onViewMovements={(product) => alert(`View movements for ${product.sku}`)}
+          onViewMovements={(product) => setSelectedProductForHistory(product)}
         />
 
         <AdjustStockModal
           product={selectedProductForStock}
           onClose={() => setSelectedProductForStock(null)}
           onSuccess={loadProducts}
+        />
+
+        <MovementsModal
+          product={selectedProductForHistory}
+          onClose={() => setSelectedProductForHistory(null)}
         />
       </div>
     </div>
