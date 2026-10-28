@@ -17,9 +17,9 @@ func getProducts(db *sql.DB) gin.HandlerFunc {
 
 		query := `
 			SELECT 
-				p.id, 			p.sku, 							p.name, 
-				p.price, 		p.stock, 						p.is_active, 
-				p.created_at, 	COUNT(*) OVER() AS total_count
+				p.id, 			p.sku, 									p.name, 
+				p.price, 		p.stock, 								p.is_active, 
+				p.created_at, 	MAX(sm.created_at) AS last_movement_at,	COUNT(*) OVER() AS total_count
 			FROM products p
 			LEFT JOIN stock_movements sm ON sm.product_id = p.id
 			WHERE ($1 = '' OR p.sku ILIKE '%' || $1 || '%' OR p.name ILIKE '%' || $1 || '%')
@@ -43,9 +43,9 @@ func getProducts(db *sql.DB) gin.HandlerFunc {
 			var product Product
 			var totalCount int
 			if err := rows.Scan(
-				&product.ID, 			&product.Sku, 		&product.Name, 
-				&product.Price, 		&product.Stock, 	&product.Is_active, 
-				&product.Created_at, 	&totalCount); 
+				&product.ID, 			&product.Sku, 				&product.Name, 
+				&product.Price, 		&product.Stock, 			&product.IsActive, 
+				&product.CreatedAt, 	&product.LastMovementAt, 	&totalCount); 
 			err != nil {
 				context.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "SCAN_ERROR", "message": err.Error()}})
 				return
@@ -53,6 +53,7 @@ func getProducts(db *sql.DB) gin.HandlerFunc {
 			total = totalCount
 			list = append(list, product)
 		}
+
 
 		if err := rows.Err(); err != nil {
 			context.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "ROWS_ERROR", "message": err.Error()}})
@@ -85,8 +86,8 @@ func createProduct(db *sql.DB) gin.HandlerFunc {
 		var product Product
 		err := db.QueryRow(query, input.SKU, input.Name, input.Price).Scan(
 			&product.ID, 		&product.Sku, 		&product.Name, 
-			&product.Price, 	&product.Stock, 	&product.Is_active, 
-			&product.Created_at,
+			&product.Price, 	&product.Stock, 	&product.IsActive, 
+			&product.CreatedAt,
 		)
 		if err != nil {
 			context.JSON(http.StatusBadRequest, gin.H{"error": "Failed to create product (SKU may already exist)"})
@@ -120,8 +121,8 @@ func updateProduct(db *sql.DB) gin.HandlerFunc {
 		var product Product
 		err := db.QueryRow(query, input.Name, input.Price, input.IsActive, id).Scan(
 			&product.ID, 		&product.Sku, 		&product.Name, 
-			&product.Price, 	&product.Stock, 	&product.Is_active, 
-			&product.Created_at,
+			&product.Price, 	&product.Stock, 	&product.IsActive, 
+			&product.CreatedAt,
 		)
 		if err == sql.ErrNoRows {
 			context.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
