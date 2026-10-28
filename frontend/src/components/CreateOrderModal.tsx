@@ -13,7 +13,7 @@ interface CreateOrderModalProps {
     isOpen: boolean
     products: Product[]
     onClose: () => void
-    onSuccess: () => void
+    onSuccess: (message: string) => void
 }
 
 export function CreateOrderModal({ isOpen, products, onClose, onSuccess }: CreateOrderModalProps) {
@@ -28,12 +28,13 @@ export function CreateOrderModal({ isOpen, products, onClose, onSuccess }: Creat
 
     useEffect(() => {
         if (isOpen) {
-        setCustomer('')
-        setItems([{ sku: activeProducts[0]?.sku || '', qty: 1 }])
-        setErrorMessage(null)
-        setCreatedOrder(null)
+            setCustomer('')
+            const firstAvailable = products.find(p => p.is_active && p.stock > 0)?.sku || ''
+            setItems([{ sku: firstAvailable, qty: 1 }])
+            setErrorMessage(null)
+            setCreatedOrder(null)
         }
-    }, [isOpen, activeProducts])
+    }, [isOpen])
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -93,7 +94,7 @@ export function CreateOrderModal({ isOpen, products, onClose, onSuccess }: Creat
             items: items.map(i => ({ sku: i.sku, qty: Number(i.qty) })),
         })
         setCreatedOrder(order)
-        onSuccess()
+        onSuccess(`Order #${order.id} for "${order.customer}" created successfully`)
         } catch (err: any) {
         if (err?.code === 'INSUFFICIENT_STOCK') {
             setErrorMessage(
@@ -115,7 +116,7 @@ export function CreateOrderModal({ isOpen, products, onClose, onSuccess }: Creat
         try {
         await api.cancelOrder(createdOrder.id)
         setCreatedOrder({ ...createdOrder, status: 'CANCELLED' })
-        onSuccess()
+        onSuccess(`Order #${createdOrder.id} cancelled and inventory restored`)
         } catch (err: any) {
         alert(err?.message || 'Failed to cancel order.')
         } finally {

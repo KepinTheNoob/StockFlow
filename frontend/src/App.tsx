@@ -7,6 +7,7 @@ import { FiRefreshCw, FiPlus, FiBox } from 'react-icons/fi'
 import { AdjustStockModal } from './components/AdjustStockModal'
 import { MovementsModal } from './components/MovementsModal'
 import { CreateOrderModal } from './components/CreateOrderModal'
+import { Toast, type ToastMessage } from './components/Toast'
 
 export default function App() {
   const [products, setProducts] = useState<Product[]>([])
@@ -15,6 +16,9 @@ export default function App() {
   const [selectedProductForStock, setSelectedProductForStock] = useState<Product | null>(null)
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null)
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
+  const [toast, setToast] = useState<ToastMessage | null>(null)
+
+  const showToast = (text: string) => setToast({ id: String(Date.now()), text })
 
   const loadProducts = async () => {
     setLoading(true)
@@ -96,7 +100,10 @@ export default function App() {
         <AdjustStockModal
           product={selectedProductForStock}
           onClose={() => setSelectedProductForStock(null)}
-          onSuccess={loadProducts}
+          onSuccess={(msg) => {
+            loadProducts()
+            showToast(msg)
+          }}
         />
 
         <MovementsModal
@@ -108,8 +115,13 @@ export default function App() {
           isOpen={isOrderModalOpen}
           products={products}
           onClose={() => setIsOrderModalOpen(false)}
-          onSuccess={loadProducts}
+          onSuccess={(msg) => {
+            loadProducts()
+            showToast(msg)
+          }}
         />
+
+        <Toast toast={toast} onDismiss={() => setToast(null)} />
       </div>
     </div>
   )

@@ -6,7 +6,7 @@ import { FiX, FiAlertCircle } from 'react-icons/fi'
 interface AdjustStockModalProps {
     product: Product | null
     onClose: () => void
-    onSuccess: () => void
+    onSuccess: (message: string) => void
 }
 
 export function AdjustStockModal({ product, onClose, onSuccess }: AdjustStockModalProps) {
@@ -52,7 +52,8 @@ export function AdjustStockModal({ product, onClose, onSuccess }: AdjustStockMod
             note: note.trim() || undefined,
         })
 
-        onSuccess()
+        const action = movementType === 'in' ? 'added to' : 'subtracted from'
+        onSuccess(`${Number(qty)} units successfully ${action} ${product.sku}`)
         onClose()
         } catch (err: any) {
         if (err?.code === 'INSUFFICIENT_STOCK') {
