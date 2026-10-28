@@ -122,3 +122,63 @@ func createOrder(db *sql.DB) gin.HandlerFunc {
 		})
 	}
 }
+
+func getOrder(db *sql.DB) gin.HandlerFunc {
+	return func(context *gin.Context) {
+		id := context.Param("id")
+
+		orderQuery := `
+			SELECT 
+				id, 	customer, 	status, 
+				total, 	created_at, cancelled_at 
+			FROM sales_orders 
+			WHERE id = $1
+		`
+		var order SalesOrder
+		err := db.QueryRow(orderQuery, id).Scan(
+			&order.ID, 		&order.Customer, 	&order.Status,
+			&order.Total, 	&order.CreatedAt, 	&order.CancelledAt,
+		)
+		if err == sql.ErrNoRows {
+			context.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+			return
+		} else if err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		itemsQuery := `
+			SELECT 
+				id, 	order_id, 	sku, 
+				qty, 	unit_price 
+			FROM sales_order_items 
+			WHERE order_id = $1
+		`
+		rows, err := db.Query(itemsQuery, id)
+		if err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer rows.Close()
+
+		order.Items = []OrderItem{}
+		for rows.Next() {
+			var item OrderItem
+			if err := rows.Scan(
+				&item.ID, 		&item.OrderID, 	&item.SKU, 
+				&item.Qty, 		&item.UnitPrice,
+			); err != nil {
+				context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			order.Items = append(order.Items, item)
+		}
+
+		if err := rows.Err(); err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		context.JSON(http.StatusOK, order)
+	}
+}
