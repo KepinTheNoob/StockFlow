@@ -4,21 +4,32 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"stockflow/backend/internal/products"
 	"stockflow/backend/internal/orders"
+	"stockflow/backend/internal/products"
 )
+
+func getEnv(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
+}
 
 var database *sql.DB
 
 func main() {
+	connStr := getEnv("DATABASE_URL", "postgres://postgres:password@localhost:5432/stockflow?sslmode=disable")
+	port := getEnv("PORT", "8080")
+	corsOrigin := getEnv("CORS_ORIGIN", "http://localhost:5173")
+
 	var err error
-	connStr := "postgres://postgres:password@localhost:5432/stockflow?sslmode=disable"
 	database, err = sql.Open("pgx", connStr)
 	if err != nil {
 		log.Fatalf("DB connection error: %v", err)
@@ -34,7 +45,7 @@ func main() {
 
 	// CORS setup
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowOrigins:     []string{corsOrigin},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
 		AllowCredentials: true,
@@ -50,5 +61,6 @@ func main() {
 	products.RegisterProductRoutes(router, database)
 	orders.RegisterOrderRoutes(router, database)
 
-	router.Run(":8080")
+	router.Run(":" + port)
 }
+
