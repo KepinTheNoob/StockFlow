@@ -155,6 +155,84 @@ func deleteProduct(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
+func adjustStock(db *sql.DB) gin.HandlerFunc {
+	return func(context *gin.Context) {
+		id := context.Param("id")
 
+		var input AdjustStockInput
+		if err := context.ShouldBindJSON(&input); err != nil {
+			context.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 
+		transaction, err := db.Begin()
+		if err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer transaction.Rollback()
 
+		var newStock int
+		if input.Type == "out" {
+			err = transaction.QueryRow(
+				"UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1 RETURNING stock",
+				input.Qty, id,
+			).Scan(&newStock)
+		} else {
+			err = transaction.QueryRow(
+				"UPDATE products SET stock = stock + $1 WHERE id = $2 RETURNING stock",
+				input.Qty, id,
+			).Scan(&newStock)
+		}
+
+		if err == sql.ErrNoRows {
+			var available int
+			db.QueryRow("SELECT stock FROM products WHERE id = $1", id).Scan(&available)
+			context.JSON(http.StatusConflict, gin.H{
+				"error": gin.H{"code": "INSUFFICIENT_STOCK", "available": available},
+			})
+			return
+		} else if err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		transaction.Exec(
+			"INSERT INTO stock_movements (product_id, type, qty, note) VALUES ($1, $2, $3, $4)",
+			id, input.Type, input.Qty, input.Note,
+		)
+
+		transaction.Commit()
+		context.JSON(http.StatusOK, gin.H{"stock": newStock})
+	}
+}
+
+func getProductMovements(db *sql.DB) gin.HandlerFunc {
+	return func(context *gin.Context) {
+		id := context.Param("id")
+
+		rows, err := db.Query(
+			"SELECT id, product_id, type, qty, note, created_at FROM stock_movements WHERE product_id = $1 ORDER BY created_at DESC",
+			id,
+		)
+		if err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer rows.Close()
+
+		var movements []StockMovement
+		for rows.Next() {
+			var m StockMovement
+			rows.Scan(&m.ID, &m.ProductID, &m.Type, &m.Qty, &m.Note, &m.CreatedAt)
+			movements = append(movements, m)
+		}
+
+		if err := rows.Err(); err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		context.JSON(http.StatusOK, gin.H{"data": movements})
+	}
+}

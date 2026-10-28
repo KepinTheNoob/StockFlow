@@ -24,6 +24,20 @@ type UpdateProduct struct {
 	IsActive	*bool   `json:"is_active"`
 }
 
+type AdjustStockInput struct {
+	Type	string 	`json:"type" binding:"required,oneof=in out"`
+	Qty  	int     `json:"qty" binding:"required,gt=0"`
+	Note 	*string `json:"note"`
+}
+
+type StockMovement struct {
+	ID        	int       	`json:"id"`
+	ProductID	int       	`json:"product_id"`
+	Type     	string    	`json:"type"`
+	Qty       	int       	`json:"qty"`
+	Note      	*string   	`json:"note"`
+	CreatedAt 	time.Time	`json:"created_at"`
+}
 
 type PaginatedProducts struct {
 	Data  	[]Product 	`json:"data"`
