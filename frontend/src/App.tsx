@@ -4,11 +4,13 @@ import type { Product } from './types/api'
 import { SummaryCards } from './components/SummaryCards'
 import { ProductTable } from './components/ProductTable'
 import { FiRefreshCw, FiPlus, FiBox } from 'react-icons/fi'
+import { AdjustStockModal } from './components/AdjustStockModal'
 
 export default function App() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedProductForStock, setSelectedProductForStock] = useState<Product | null>(null)
 
   const loadProducts = async () => {
     setLoading(true)
@@ -41,8 +43,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 antialiased p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        
-        {/* Header */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
           <div>
             <div className="flex items-center gap-2">
@@ -73,7 +73,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* Metrics */}
         <SummaryCards
           total={metrics.total}
           active={metrics.active}
@@ -81,16 +80,20 @@ export default function App() {
           lowStock={metrics.lowStock}
         />
 
-        {/* Table & Filters */}
         <ProductTable
           products={products}
           loading={loading}
           error={error}
           onRetry={loadProducts}
-          onAdjustStock={(product) => alert(`Adjust stock for ${product.sku}`)}
+          onAdjustStock={(product) => setSelectedProductForStock(product)}
           onViewMovements={(product) => alert(`View movements for ${product.sku}`)}
         />
 
+        <AdjustStockModal
+          product={selectedProductForStock}
+          onClose={() => setSelectedProductForStock(null)}
+          onSuccess={loadProducts}
+        />
       </div>
     </div>
   )
