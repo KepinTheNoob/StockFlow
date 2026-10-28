@@ -11,6 +11,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"stockflow/backend/internal/products"
+	"stockflow/backend/internal/orders"
 )
 
 var database *sql.DB
@@ -47,7 +48,7 @@ func main() {
 
 	// Endpoints
 	products.RegisterProductRoutes(router, database)
-
+	orders.RegisterOrderRoutes(router, database)
 
 	router.Run(":8080")
 }
