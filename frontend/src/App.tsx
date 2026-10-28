@@ -1,122 +1,97 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useEffect, useState, useMemo } from 'react'
+import { api } from './api/client'
+import type { Product } from './types/api'
+import { SummaryCards } from './components/SummaryCards'
+import { ProductTable } from './components/ProductTable'
+import { FiRefreshCw, FiPlus, FiBox } from 'react-icons/fi'
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadProducts = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await api.getProducts()
+      setProducts(data || [])
+    } catch (err: any) {
+      setError(err?.message || 'Failed to connect to backend API.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadProducts()
+  }, [])
+
+  const metrics = useMemo(() => {
+    const total = products.length
+    const active = products.filter(p => p.is_active).length
+    const totalValue = products
+      .filter(p => p.is_active)
+      .reduce((sum, p) => sum + p.price * p.stock, 0)
+    const lowStock = products.filter(p => p.is_active && p.stock <= 10).length
+
+    return { total, active, totalValue, lowStock }
+  }, [products])
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="min-h-screen bg-slate-50 text-slate-800 antialiased p-4 md:p-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+        
+        {/* Header */}
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+          <div>
+            <div className="flex items-center gap-2">
+              <FiBox className="w-7 h-7 text-indigo-600" aria-hidden="true" />
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">StockFlow</h1>
+            </div>
+            <p className="text-sm text-slate-500 mt-1">Inventory & Sales Management</p>
+          </div>
 
-      <div className="ticks"></div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={loadProducts}
+              disabled={loading}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+            >
+              <FiRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => alert('Create order coming up next')}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            >
+              <FiPlus className="w-4 h-4" />
+              Create Order
+            </button>
+          </div>
+        </header>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+        {/* Metrics */}
+        <SummaryCards
+          total={metrics.total}
+          active={metrics.active}
+          totalValue={metrics.totalValue}
+          lowStock={metrics.lowStock}
+        />
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+        {/* Table & Filters */}
+        <ProductTable
+          products={products}
+          loading={loading}
+          error={error}
+          onRetry={loadProducts}
+          onAdjustStock={(product) => alert(`Adjust stock for ${product.sku}`)}
+          onViewMovements={(product) => alert(`View movements for ${product.sku}`)}
+        />
+
+      </div>
+    </div>
   )
 }
-
-export default App
