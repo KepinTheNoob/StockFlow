@@ -26,7 +26,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getProducts: () => request<Product[]>('/api/products'),
+  getProducts: () => request<Product[]>('/api/products?limit=1000'),
   getMovements: (productId: number) =>
     request<StockMovement[]>(`/api/products/${productId}/movements`),
   adjustStock: (productId: number, data: { type: 'in' | 'out'; qty: number; note?: string }) =>
