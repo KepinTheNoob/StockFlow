@@ -6,26 +6,38 @@ A full-stack inventory and sales order management module built with **React + Ty
 
 ## Quickstart (Runnable in < 3 minutes)
 
-### Prerequisites
+### Option A: One-Command Full-Stack Run (Docker Compose)
+Runs PostgreSQL 16, the Go Gin backend API, and the React + Vite frontend served via Nginx in a unified container network:
+```bash
+docker compose up --build
+```
+- Web Application: `http://localhost:5173`
+- Backend API: `http://localhost:8080`
+- PostgreSQL: `localhost:5432`
+
+---
+
+### Option B: Local Development Run
+
+#### Prerequisites
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
 - [Go 1.22+](https://go.dev/dl/)
 - [Node.js 20+](https://nodejs.org/)
 
-### 1. Start PostgreSQL
-From the repository root:
+#### 1. Start PostgreSQL
 ```bash
-docker compose up -d
+docker compose up -d db
 ```
-This command starts PostgreSQL 16 on port `5432` and automatically runs all migrations and seed data from `./db/init` (25 products, initial stock movements, and sample orders).
+Starts PostgreSQL 16 on port `5432` and applies all migrations and seed data from `./db/init` (25 products, initial stock movements, and sample orders).
 
-### 2. Start the Backend (Go)
+#### 2. Start the Backend (Go)
 ```bash
 cd backend
-go run cmd/api/main.go
+go run cmd/main.go
 ```
 The Go Gin API server will start on `http://localhost:8080`.
 
-### 3. Start the Frontend (React + Vite)
+#### 3. Start the Frontend (React + Vite)
 In a separate terminal:
 ```bash
 cd frontend
@@ -38,7 +50,7 @@ The web UI will be available at `http://localhost:5173`.
 
 ## Running Automated Tests
 
-### Backend Tests (Data Safety & Concurrency with Race Detector)
+### Backend Tests (Data Safety, Concurrency, and Idempotency)
 ```bash
 cd backend
 go test -v -race ./internal/orders
@@ -47,6 +59,7 @@ go test -v -race ./internal/orders
 - `TestCreateOrder_InsufficientStock`: Verifies that an order exceeding stock returns `409 INSUFFICIENT_STOCK`, and nothing is written to products, orders, or stock movements.
 - `TestCreateOrder_HappyPath`: Verifies stock decrements accurately and writes a stock movement row atomically.
 - `TestCreateOrder_ConcurrencySafe`: Simulates 10 concurrent goroutines racing to purchase 3 remaining items. Verifies exactly 3 succeed, 7 receive 409, and stock ends at exactly 0 without race conditions.
+- `TestCreateOrder_IdempotencyKey`: Verifies that duplicate submissions with an `Idempotency-Key` header return the original order with `Idempotent-Replay: true`, and stock is decremented only once.
 
 ### Frontend Unit Tests (Vitest)
 ```bash
@@ -76,7 +89,13 @@ npm test
 - **Database CHECK Constraints**:
   As a defense-in-depth safety net, `CHECK (stock >= 0)` and `CHECK (price >= 0)` are enforced directly in the PostgreSQL schema.
 
-### 2. Cross-Stack Error Normalization
+### 2. Idempotency-Key Support on Order Creation
+- The API accepts an optional `Idempotency-Key` HTTP header on `POST /api/orders`.
+- The database maintains an `idempotency_keys` table storing the original status code and serialized response payload.
+- Before executing mutations, the backend checks for an existing completed response. If found, it immediately replays the cached response with an `Idempotent-Replay: true` header without creating a new order or deducting inventory twice.
+- Concurrent requests with identical keys are guarded at the database level using an atomic insert slot, preventing duplicate in-flight transactions.
+
+### 3. Cross-Stack Error Normalization
 - When stock is insufficient, the Go backend returns a structured error:
   ```json
   {
@@ -89,12 +108,12 @@ npm test
   ```
 - The frontend API client (`frontend/src/api/client.ts`) normalizes this envelope and displays it directly inline inside the modal (highlighting the specific failing SKU and the exact stock available), rather than logging an unhandled error to the console.
 
-### 3. Derived `last_movement_at`
+### 4. Derived `last_movement_at`
 - **Design Choice**: `last_movement_at` is derived dynamically using a `LEFT JOIN stock_movements sm ON sm.product_id = p.id` with `MAX(sm.created_at) GROUP BY p.id`.
 - **Rationale**: Storing `last_movement_at` directly on the `products` table creates a dual-write vulnerability where product rows can drift out of sync with `stock_movements`. Treating `stock_movements` as the immutable single source of truth eliminates desynchronization bugs while maintaining quick index lookups.
 
-### 4. Client-Server Communication & CORS
-- The Go backend configures CORS middleware in `backend/cmd/api/main.go`, permitting requests from Vite's local dev server (`http://localhost:5173`) with full support for GET, POST, PUT, DELETE, and OPTIONS preflight checks.
+### 5. Client-Server Communication & CORS
+- The Go backend configures CORS middleware in `backend/cmd/main.go`, permitting requests from Vite's local dev server (`http://localhost:5173`) with full support for GET, POST, PUT, DELETE, and OPTIONS preflight checks. It explicitly exposes the `Idempotent-Replay` header and permits `Idempotency-Key`.
 
 ---
 
@@ -160,10 +179,11 @@ curl -s http://localhost:8080/api/products/1/movements
 }
 ```
 
-### 4. Create Sales Order (Happy Path)
+### 4. Create Sales Order (with Idempotency-Key)
 ```bash
-curl -s -X POST http://localhost:8080/api/orders \
+curl -s -i -X POST http://localhost:8080/api/orders \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000" \
   -d '{
     "customer": "PT Maju Jaya",
     "items": [
@@ -191,6 +211,7 @@ curl -s -X POST http://localhost:8080/api/orders \
   ]
 }
 ```
+*Repeating this request with the same `Idempotency-Key` returns HTTP 201 with header `Idempotent-Replay: true` and identical body without decrementing stock again.*
 
 ### 5. Insufficient Stock Rejection (409 Conflict)
 ```bash
@@ -267,15 +288,13 @@ curl -s -i -X DELETE http://localhost:8080/api/products/1
 
 ## What I Would Improve Next
 
-1. **Idempotency-Key Header on Orders**:
-   Add an `Idempotency-Key` header on `POST /api/orders` cached via Redis or PostgreSQL to prevent duplicate orders during client retries or network drops.
-2. **Unified Multi-Service Docker Compose**:
-   Add backend and frontend services into `docker-compose.yml` for single-command (`docker compose up`) production deployments.
-3. **Dedicated Inventory Metrics Endpoint**:
+1. **Redis TTL Caching for Idempotency Keys**:
+   Transition idempotency key storage to Redis with a 24-hour expiration window to prevent unbounded table growth in high-throughput enterprise deployments.
+2. **Dedicated Inventory Metrics Endpoint**:
    For enterprise catalogs with 100,000+ items, implement `GET /api/inventory/stats` executing `SELECT SUM(price * stock), COUNT(*)` in PostgreSQL rather than aggregating client-side.
-4. **Database Migration Tooling**:
+3. **Database Migration Tooling**:
    Transition from startup SQL scripts to versioned database migration tools (`golang-migrate` or `goose`).
-5. **End-to-End Browser Testing**:
+4. **End-to-End Browser Testing**:
    Implement Playwright browser tests covering full user flows (adjust stock -> create order -> cancel order -> verify stock restored in table).
 
 ---
@@ -286,4 +305,5 @@ curl -s -i -X DELETE http://localhost:8080/api/products/1
 - **Go API & Concurrency safety**: ~2.5 hours
 - **React UI, Modals & Toast feedback**: ~1.75 hours
 - **Automated tests (Go concurrency + Vitest) & Documentation**: ~1 hour
-- **Total effort**: ~6 hours
+- **Bonus Features (Idempotency-Key & End-to-End Compose)**: ~0.75 hours
+- **Total effort**: ~6.75 hours

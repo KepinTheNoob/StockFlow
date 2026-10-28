@@ -34,9 +34,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  createOrder: (data: { customer: string; items: { sku: string; qty: number }[] }) =>
+  createOrder: (
+    data: { customer: string; items: { sku: string; qty: number }[] },
+    idempotencyKey?: string,
+  ) =>
     request<SalesOrder>('/api/orders', {
       method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
       body: JSON.stringify(data),
     }),
   getOrder: (orderId: number) => request<SalesOrder>(`/api/orders/${orderId}`),

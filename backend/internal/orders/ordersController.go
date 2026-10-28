@@ -2,6 +2,7 @@ package orders
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -25,12 +26,53 @@ func createOrder(db *sql.DB) gin.HandlerFunc {
 			seen[item.SKU] = true
 		}
 
+		idempotencyKey := context.GetHeader("Idempotency-Key")
+		if idempotencyKey != "" {
+			var cachedCode int
+			var cachedBody []byte
+			err := db.QueryRow(
+				"SELECT response_code, response_body FROM idempotency_keys WHERE key = $1 AND response_code > 0",
+				idempotencyKey,
+			).Scan(&cachedCode, &cachedBody)
+			if err == nil {
+				context.Header("Idempotent-Replay", "true")
+				context.Data(cachedCode, "application/json; charset=utf-8", cachedBody)
+				return
+			}
+		}
+
 		transaction, err := db.Begin()
 		if err != nil {
 			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		defer transaction.Rollback()
+
+		if idempotencyKey != "" {
+			insertKeyQuery := `
+				INSERT INTO idempotency_keys (key, response_code, response_body) 
+				VALUES ($1, 0, '{}')
+			`
+			if _, err := transaction.Exec(insertKeyQuery, idempotencyKey); err != nil {
+				_ = transaction.Rollback()
+				var cachedCode int
+				var cachedBody []byte
+				for i := 0; i < 10; i++ {
+					err := db.QueryRow(
+						"SELECT response_code, response_body FROM idempotency_keys WHERE key = $1 AND response_code > 0",
+						idempotencyKey,
+					).Scan(&cachedCode, &cachedBody)
+					if err == nil {
+						context.Header("Idempotent-Replay", "true")
+						context.Data(cachedCode, "application/json; charset=utf-8", cachedBody)
+						return
+					}
+					time.Sleep(50 * time.Millisecond)
+				}
+				context.JSON(http.StatusConflict, gin.H{"error": "Concurrent request with same Idempotency-Key is processing"})
+				return
+			}
+		}
 
 		orderTotal := 0
 		orderItems := []OrderItem{}
@@ -107,19 +149,38 @@ func createOrder(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 
-		if err := transaction.Commit(); err != nil {
-			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		context.JSON(http.StatusCreated, SalesOrder{
+		createdOrder := SalesOrder{
 			ID:        orderID,
 			Customer:  input.Customer,
 			Status:    "CREATED",
 			Total:     orderTotal,
 			CreatedAt: createdAt,
 			Items:     orderItems,
-		})
+		}
+
+		if idempotencyKey != "" {
+			bodyBytes, err := json.Marshal(createdOrder)
+			if err != nil {
+				context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			updateKeyQuery := `
+				UPDATE idempotency_keys 
+				SET order_id = $1, response_code = $2, response_body = $3 
+				WHERE key = $4
+			`
+			if _, err := transaction.Exec(updateKeyQuery, orderID, http.StatusCreated, bodyBytes, idempotencyKey); err != nil {
+				context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		}
+
+		if err := transaction.Commit(); err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		context.JSON(http.StatusCreated, createdOrder)
 	}
 }
 

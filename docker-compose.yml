@@ -11,6 +11,36 @@ services:
     volumes:
       - ./db/init:/docker-entrypoint-initdb.d
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d stockflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stockflow-backend
+    environment:
+      DATABASE_URL: postgres://postgres:password@db:5432/stockflow?sslmode=disable
+      PORT: "8080"
+      CORS_ORIGIN: "http://localhost:5173"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stockflow-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
 
 volumes:
   pgdata:

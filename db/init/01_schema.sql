@@ -33,3 +33,11 @@ CREATE TABLE sales_order_items (
     qty        INTEGER NOT NULL CHECK (qty > 0),
     unit_price INTEGER NOT NULL
 );
+
+CREATE TABLE idempotency_keys (
+    key           TEXT PRIMARY KEY,
+    order_id      INTEGER REFERENCES sales_orders(id) ON DELETE CASCADE,
+    response_code INTEGER NOT NULL DEFAULT 0,
+    response_body JSONB NOT NULL DEFAULT '{}',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);

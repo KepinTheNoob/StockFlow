@@ -23,6 +23,7 @@ export function CreateOrderModal({ isOpen, products, onClose, onSuccess }: Creat
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [createdOrder, setCreatedOrder] = useState<SalesOrder | null>(null)
     const [cancelling, setCancelling] = useState(false)
+    const [idempotencyKey, setIdempotencyKey] = useState('')
 
     const activeProducts = useMemo(() => products.filter(p => p.is_active && p.stock > 0), [products])
 
@@ -33,6 +34,7 @@ export function CreateOrderModal({ isOpen, products, onClose, onSuccess }: Creat
             setItems([{ sku: firstAvailable, qty: 1 }])
             setErrorMessage(null)
             setCreatedOrder(null)
+            setIdempotencyKey(crypto.randomUUID ? crypto.randomUUID() : `order-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`)
         }
     }, [isOpen])
 
@@ -92,7 +94,7 @@ export function CreateOrderModal({ isOpen, products, onClose, onSuccess }: Creat
         const order = await api.createOrder({
             customer: customer.trim(),
             items: items.map(i => ({ sku: i.sku, qty: Number(i.qty) })),
-        })
+        }, idempotencyKey)
         setCreatedOrder(order)
         onSuccess(`Order #${order.id} for "${order.customer}" created successfully`)
         } catch (err: any) {

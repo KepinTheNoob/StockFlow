@@ -242,3 +242,102 @@ func TestCreateOrder_ConcurrencySafe(test *testing.T) {
 		test.Errorf("Expected final stock 0, got %d (must never be negative)", finalStock)
 	}
 }
+
+// 4. Idempotency test (retries never double-order or double-decrement stock)
+func TestCreateOrder_IdempotencyKey(test *testing.T) {
+	db, router := setupTestDB(test)
+	defer db.Close()
+
+	testSKU := "TEST-IDEM-001"
+	testKey := "idem-key-test-12345"
+
+	db.Exec("DELETE FROM idempotency_keys WHERE key = $1", testKey)
+	db.Exec("DELETE FROM sales_order_items WHERE sku = $1", testSKU)
+	db.Exec("DELETE FROM stock_movements WHERE product_id IN (SELECT id FROM products WHERE sku = $1)", testSKU)
+	db.Exec("DELETE FROM products WHERE sku = $1", testSKU)
+
+	var productID int
+	err := db.QueryRow(`
+		INSERT INTO products (sku, name, price, stock, is_active)
+		VALUES ($1, 'Test Idempotency Product', 25000, 10, true)
+		RETURNING id
+	`, testSKU).Scan(&productID)
+	if err != nil {
+		test.Fatalf("Failed to insert test product: %v", err)
+	}
+	defer func() {
+		db.Exec("DELETE FROM idempotency_keys WHERE key = $1", testKey)
+		db.Exec("DELETE FROM sales_order_items WHERE sku = $1", testSKU)
+		db.Exec("DELETE FROM stock_movements WHERE product_id = $1", productID)
+		db.Exec("DELETE FROM products WHERE id = $1", productID)
+	}()
+
+	payload := CreateOrderInput{
+		Customer: "Idempotent Buyer",
+		Items: []OrderItemInput{
+			{SKU: testSKU, Qty: 2},
+		},
+	}
+	body, _ := json.Marshal(payload)
+
+	// First Request
+	req1 := httptest.NewRequest(http.MethodPost, "/api/orders", bytes.NewBuffer(body))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("Idempotency-Key", testKey)
+	rec1 := httptest.NewRecorder()
+	router.ServeHTTP(rec1, req1)
+
+	if rec1.Code != http.StatusCreated {
+		test.Fatalf("First request expected 201 Created, got %d: %s", rec1.Code, rec1.Body.String())
+	}
+
+	var order1 SalesOrder
+	if err := json.Unmarshal(rec1.Body.Bytes(), &order1); err != nil {
+		test.Fatalf("Failed to decode first response: %v", err)
+	}
+
+	// Verify stock decremented to 8
+	var stockAfterFirst int
+	db.QueryRow("SELECT stock FROM products WHERE id = $1", productID).Scan(&stockAfterFirst)
+	if stockAfterFirst != 8 {
+		test.Fatalf("Expected stock after first order to be 8, got %d", stockAfterFirst)
+	}
+
+	// Second Request with identical Idempotency-Key (simulating client retry or double-click)
+	req2 := httptest.NewRequest(http.MethodPost, "/api/orders", bytes.NewBuffer(body))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Idempotency-Key", testKey)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusCreated {
+		test.Fatalf("Second request expected 201 Created, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	if rec2.Header().Get("Idempotent-Replay") != "true" {
+		test.Errorf("Expected Idempotent-Replay header to be 'true', got '%s'", rec2.Header().Get("Idempotent-Replay"))
+	}
+
+	var order2 SalesOrder
+	if err := json.Unmarshal(rec2.Body.Bytes(), &order2); err != nil {
+		test.Fatalf("Failed to decode second response: %v", err)
+	}
+
+	if order2.ID != order1.ID {
+		test.Errorf("Expected identical Order ID %d, got %d", order1.ID, order2.ID)
+	}
+
+	// Stock MUST still be 8, NOT decremented to 6
+	var stockAfterSecond int
+	db.QueryRow("SELECT stock FROM products WHERE id = $1", productID).Scan(&stockAfterSecond)
+	if stockAfterSecond != 8 {
+		test.Errorf("Expected stock to remain 8 on idempotent replay, got %d", stockAfterSecond)
+	}
+
+	// Total orders in DB for this customer must be exactly 1
+	var orderCount int
+	db.QueryRow("SELECT COUNT(*) FROM sales_orders WHERE customer = 'Idempotent Buyer'").Scan(&orderCount)
+	if orderCount != 1 {
+		test.Errorf("Expected exactly 1 sales order in database, got %d", orderCount)
+	}
+}
