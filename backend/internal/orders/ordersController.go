@@ -182,3 +182,112 @@ func getOrder(db *sql.DB) gin.HandlerFunc {
 		context.JSON(http.StatusOK, order)
 	}
 }
+
+func cancelOrder(db *sql.DB) gin.HandlerFunc {
+	return func(context *gin.Context) {
+		id := context.Param("id")
+
+		transaction, err := db.Begin()
+		if err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer transaction.Rollback()
+
+		var currentStatus string
+		checkQuery := `
+			SELECT status 
+			FROM sales_orders 
+			WHERE id = $1 
+			FOR UPDATE
+		`
+		err = transaction.QueryRow(checkQuery, id).Scan(&currentStatus)
+		if err == sql.ErrNoRows {
+			context.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+			return
+		} else if err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if currentStatus == "CANCELLED" {
+			context.JSON(http.StatusConflict, gin.H{
+				"error": gin.H{"code": "ORDER_ALREADY_CANCELLED"},
+			})
+			return
+		}
+
+		cancelQuery := `
+			UPDATE sales_orders 
+			SET status = 'CANCELLED', cancelled_at = now() 
+			WHERE id = $1
+		`
+		if _, err := transaction.Exec(cancelQuery, id); err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		itemsQuery := `
+			SELECT sku, qty 
+			FROM sales_order_items 
+			WHERE order_id = $1
+		`
+		rows, err := transaction.Query(itemsQuery, id)
+		if err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer rows.Close()
+
+		type itemRestore struct {
+			sku string
+			qty int
+		}
+		toRestore := []itemRestore{}
+		for rows.Next() {
+			var item itemRestore
+			if err := rows.Scan(&item.sku, &item.qty); err != nil {
+				context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			toRestore = append(toRestore, item)
+		}
+
+		if err := rows.Err(); err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		for _, item := range toRestore {
+			var productID int
+			restoreStockQuery := `
+				UPDATE products 
+				SET stock = stock + $1 
+				WHERE sku = $2 
+				RETURNING id
+			`
+			err := transaction.QueryRow(restoreStockQuery, item.qty, item.sku).Scan(&productID)
+			if err != nil {
+				context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			insertMovementQuery := `
+				INSERT INTO stock_movements (product_id, type, qty, note) 
+				VALUES ($1, 'in', $2, 'Order cancellation restoration')
+			`
+			if _, err := transaction.Exec(insertMovementQuery, productID, item.qty); err != nil {
+				context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		}
+
+		if err := transaction.Commit(); err != nil {
+			context.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		context.JSON(http.StatusOK, gin.H{"message": "Order cancelled and stock restored"})
+	}
+}
+
